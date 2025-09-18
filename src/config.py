@@ -24,3 +24,15 @@ LOGGING_CONFIG = {
     'file_handler': True,
     'console_handler': True
 }
+
+# Configuración de enriquecimiento externo (opcional)
+ENRICHMENT_CONFIG = {
+    # Enriquecimiento con festivos públicos (Nager.Date API)
+    'enable_holidays': True,
+    'holiday_country_code': 'US',  # Cambiar según el país de interés (p.ej. 'ES', 'MX', 'CO')
+
+    # Enriquecimiento FX (Frankfurter API) para normalizar montos a una moneda
+    # Solo se aplica si existe columna 'currency' en los datos
+    'enable_fx': False,
+    'fx_target_currency': 'USD'
+}

@@ -243,6 +243,18 @@ class DataTransformer:
                 df_validated['credit_amount'] - abs(df_validated['debit_amount'])
             )
 
+            # Dirección y variables derivadas básicas
+            df_validated['transaction_direction'] = np.where(
+                df_validated['credit_amount'] > 0, 'credit',
+                np.where(df_validated['debit_amount'] > 0, 'debit', 'neutral')
+            )
+
+        # Monto absoluto y flags de ingreso/gasto
+        if 'net_transaction_amount' in df_validated.columns:
+            df_validated['amount_abs'] = df_validated['net_transaction_amount'].abs()
+            df_validated['is_income'] = df_validated['net_transaction_amount'] > 0
+            df_validated['is_expense'] = df_validated['net_transaction_amount'] < 0
+
         # 2. Clasificar transacciones por monto
         if 'net_transaction_amount' in df_validated.columns:
             df_validated['transaction_size'] = pd.cut(
@@ -273,6 +285,17 @@ class DataTransformer:
             df_validated['transaction_day_of_week'] = df_processed_dates.dt.day_name()
             df_validated['transaction_quarter'] = df_processed_dates.dt.quarter
 
+            # Flags temporales adicionales
+            df_validated['is_weekend'] = df_validated['transaction_day_of_week'].isin(['Saturday', 'Sunday'])
+            df_validated['is_month_end'] = df_processed_dates.dt.is_month_end
+            df_validated['is_month_start'] = df_processed_dates.dt.is_month_start
+            # isocalendar() returns a DataFrame with week/year/day for pandas >= 1.1
+            try:
+                df_validated['week_of_year'] = df_processed_dates.dt.isocalendar().week.astype('Int64')
+            except Exception:
+                df_validated['week_of_year'] = pd.NaT
+            df_validated['year_month'] = df_processed_dates.dt.to_period('M').astype(str)
+
         # 5. Validar integridad de datos
         df_validated['data_quality_score'] = self._calculate_data_quality_score(df_validated)
 
@@ -280,6 +303,87 @@ class DataTransformer:
         df_validated['is_fee_transaction'] = df_validated.get('transaction_category', '').str.contains('Fee', case=False, na=False)
         df_validated['is_payment_transaction'] = df_validated.get('transaction_category', '').str.contains('Payment', case=False, na=False)
         df_validated['is_large_transaction'] = abs(df_validated.get('net_transaction_amount', 0)) > 500
+
+        # 6.1. Variables de negocio adicionales basadas en categoría
+        if 'category_priority' in df_validated.columns:
+            priority_map = {'low': 1, 'medium': 2, 'high': 3}
+            df_validated['category_priority_level'] = df_validated['category_priority'].map(priority_map).fillna(0).astype(int)
+        if 'category_tax_deductible' in df_validated.columns:
+            df_validated['is_tax_deductible'] = df_validated['category_tax_deductible'].astype(bool)
+        if 'category_type' in df_validated.columns:
+            discretionary_types = {'food_beverage', 'personal_care', 'retail', 'miscellaneous'}
+            df_validated['is_discretionary'] = df_validated['category_type'].isin(discretionary_types)
+        if 'category_tax_deductible' in df_validated.columns and 'net_transaction_amount' in df_validated.columns:
+            df_validated['tax_deductible_amount'] = np.where(
+                df_validated['category_tax_deductible'].fillna(False),
+                df_validated['net_transaction_amount'].abs(),
+                0.0
+            )
+
+        # 6.2. Features de texto a partir de la descripción
+        if 'transaction_description' in df_validated.columns:
+            desc_lower = df_validated['transaction_description'].astype(str).str.lower()
+            df_validated['description_length'] = desc_lower.str.len()
+            df_validated['has_keyword_subscription'] = desc_lower.str.contains(
+                r'subscription|suscrip|netflix|spotify|itunes|prime|membership', regex=True, na=False
+            )
+            df_validated['has_atm'] = desc_lower.str.contains(r'\batm\b', regex=True, na=False)
+            df_validated['has_transfer'] = desc_lower.str.contains(r'transfer|transf|zelle|wire|sepa', regex=True, na=False)
+            df_validated['has_refund_keyword'] = desc_lower.str.contains(r'refund|reversal|chargeback|reembolso', regex=True, na=False)
+
+            # Recurrencia por descripción
+            counts = desc_lower.value_counts()
+            df_validated['description_txn_count'] = desc_lower.map(counts).fillna(0).astype(int)
+            df_validated['is_recurring_description'] = df_validated['description_txn_count'] >= 3
+
+            # Candidatos a duplicado: misma fecha, descripción y monto neto
+            if 'net_transaction_amount' in df_validated.columns and 'transaction_date' in df_validated.columns:
+                dup_key = (
+                    df_validated['transaction_date'].astype(str) + '|' +
+                    desc_lower.fillna('') + '|' +
+                    df_validated['net_transaction_amount'].round(2).astype(str)
+                )
+                df_validated['is_duplicate_candidate'] = dup_key.duplicated(keep=False)
+
+        # 6.3. Estadísticas por categoría para z-score de monto neto
+        if 'transaction_category' in df_validated.columns and 'net_transaction_amount' in df_validated.columns:
+            df_validated['cat_net_mean'] = df_validated.groupby('transaction_category')['net_transaction_amount'].transform('mean')
+            df_validated['cat_net_std'] = df_validated.groupby('transaction_category')['net_transaction_amount'].transform('std')
+            df_validated['cat_net_std'] = df_validated['cat_net_std'].replace(0, np.nan)
+            df_validated['cat_net_zscore'] = (
+                (df_validated['net_transaction_amount'] - df_validated['cat_net_mean']) /
+                df_validated['cat_net_std']
+            ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+            # Ratio de gasto vs promedio de la categoría
+            with np.errstate(divide='ignore', invalid='ignore'):
+                df_validated['spend_vs_category_mean'] = (
+                    df_validated['net_transaction_amount'].abs() / df_validated['cat_net_mean'].abs()
+                )
+            df_validated['spend_vs_category_mean'] = df_validated['spend_vs_category_mean'].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+        # 6.4. Días desde la transacción anterior con la misma descripción
+        if 'transaction_description' in df_validated.columns and 'transaction_date' in df_validated.columns:
+            try:
+                tmp_dates = pd.to_datetime(df_validated['transaction_date'], errors='coerce')
+                tmp_desc = df_validated['transaction_description'].astype(str).str.lower().fillna('')
+                df_validated['_row_order'] = np.arange(len(df_validated))
+                df_validated['_tmp_dt'] = tmp_dates
+                df_validated['_tmp_desc'] = tmp_desc
+                df_validated = df_validated.sort_values(['_tmp_desc', '_tmp_dt', '_row_order'])
+                df_validated['days_since_prev_same_desc'] = df_validated.groupby('_tmp_desc')['_tmp_dt'].diff().dt.days
+                df_validated = df_validated.sort_values(['_row_order']).drop(columns=['_row_order', '_tmp_dt', '_tmp_desc'])
+            except Exception:
+                df_validated['days_since_prev_same_desc'] = pd.NA
+
+        # 6.5. Banderas de reembolso (refund)
+        if 'net_transaction_amount' in df_validated.columns:
+            has_refund_kw = df_validated['has_refund_keyword'] if 'has_refund_keyword' in df_validated.columns else False
+            is_payment_credit = df_validated.get('transaction_category', '').str.contains('Payment/Credit', case=False, na=False)
+            df_validated['is_refund'] = (
+                (has_refund_kw.astype(bool)) |
+                (is_payment_credit & (df_validated['net_transaction_amount'] > 0))
+            )
 
         # 7. Agregar timestamp de procesamiento
         df_validated['processed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
