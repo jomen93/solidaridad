@@ -1,108 +1,181 @@
-# Prueba Técnica – Ingeniero de Datos
+# Prueba Técnica – Ingeniero de Datos - ITRIO SAS
 
-## Breve explicación de la solución
+Solución ETL completa para la Fake Bank API: extracción, limpieza, enriquecimiento y carga a SQLite, con queries SQL listas para ejecutar y compartir.
 
-Este proyecto implementa un pipeline ETL en Python para extraer, transformar y analizar datos de la Fake Bank API. El flujo automatiza la descarga de datos, su limpieza y enriquecimiento, y finalmente los pone a disposición para análisis SQL en SQLite. La estructura modular permite mantener y escalar fácilmente el proceso.
+## Estructura de carpetas y roles
 
-### Estructura del pipeline
-- **Ingesta:** Descarga los datos de la API y los almacena en `data/raw/`.
-- **Transformación:** Limpia, normaliza y enriquece los datos, guardando el resultado en formato Parquet en `data/processed/`.
-- **Carga y análisis:** Carga el dataset procesado en SQLite y genera automáticamente un volcado `.sql` para que cualquier usuario pueda consultar los datos fácilmente.
-
-## Ejecución rápida del pipeline
-
-1. Instala las dependencias:
-	```sh
-	pip install -r requirements.txt
-	```
-2. Ejecuta el pipeline completo:
-	```sh
-	python run_all.py
-	```
-	Esto generará automáticamente:
-	- La base de datos SQLite en `data/processed/etl_results.sqlite`
-	- Un volcado SQL en `etl_results_dump.sql`
-
-3. Para consultar los datos en otro entorno, puedes cargar el archivo `etl_results_dump.sql` en cualquier gestor de bases de datos SQLite:
-	```sh
-	sqlite3 nueva_base.sqlite < etl_results_dump.sql
-	```
-	Luego puedes hacer cualquier consulta SQL sobre la tabla `accounts`.
-## Consultas SQL y resultados
-
-### 1. Transacciones por categoría
-```sql
-SELECT transaction_category, COUNT(*) as total 
-FROM accounts 
-GROUP BY transaction_category
 ```
-**Resultado:**
-| transaction_category     | total |
-|-------------------------|-------|
-| Dining                  | 44    |
-| Fee/Interest Charge     | 14    |
-| Gas/Automotive          | 11    |
-| Health Care             | 23    |
-| Merchandise             | 52    |
-| Other                   | 3     |
-| Other Services          | 16    |
-| Other Travel            | 3     |
-| Payment/Credit          | 16    |
-| Phone/Cable             | 5     |
-| air                     | 1     |
-| beauty                  | 524   |
-| food                    | 494   |
-| fuel                    | 498   |
-| gaz                     | 1     |
-| restaurants             | 481   |
-| taxi                    | 495   |
-
-### 2. Monto neto promedio por categoría
-```sql
-SELECT transaction_category, AVG(net_transaction_amount) as avg_net_amount 
-FROM accounts 
-GROUP BY transaction_category
+solidaridad/
+├─ src/
+│  ├─ extract/
+│  │  └─ data_extractor.py      # Llama a la API y guarda raw (data/raw)
+│  ├─ transform/
+│  │  └─ data_transformer.py    # Limpia, normaliza y agrega features de negocio
+│  ├─ load/
+│  │  └─ data_loader.py         # Carga a SQLite y genera volcado .sql
+│  ├─ enrich/
+│  │  └─ external_enrichment.py # Festivos (Nager.Date) y FX (Frankfurter)
+│  └─ config.py                 # Parámetros (API, rutas, ENRICHMENT_CONFIG)
+├─ data/
+│  ├─ raw/                      # Datos crudos (parquet)
+│  └─ processed/                # Datos procesados y etl_results.sqlite
+├─ querys/
+│  ├─ *.sql                     # Consultas de análisis
+│  ├─ etl_results_dump.sql      # Volcado SQL actualizado por el pipeline
+│  ├─ results/*.csv             # Resultados de las queries
+│  └─ run_queries.py            # Ejecuta todas las queries y exporta a CSV
+├─ main.py                      # Orquestador del ETL (end-to-end)
+├─ requirements.txt             # Dependencias
+└─ README.md
 ```
-**Resultado:**
-| transaction_category     | avg_net_amount |
-|-------------------------|----------------|
-| Dining                  | -17.48         |
-| Fee/Interest Charge     | -5.14          |
-| Gas/Automotive          | -24.34         |
-| Health Care             | -52.82         |
-| Merchandise             | -37.63         |
-| Other                   | -1.98          |
-| Other Services          | -21.13         |
-| Other Travel            | -79.38         |
-| Payment/Credit          | 282.49         |
-| Phone/Cable             | -66.55         |
-| air                     | 62.20          |
-| beauty                  | -47.51         |
-| food                    | -51.51         |
-| fuel                    | -50.41         |
-| gaz                     | 62.20          |
-| restaurants             | -51.77         |
-| taxi                    | -52.67         |
 
-### 3. Transacciones marcadas como anomalía
-```sql
-SELECT * FROM accounts WHERE is_anomaly = 1
+## Orquestador (main.py)
+Flujo end-to-end:
+- Extrae cuentas desde la API y guarda en `data/raw/`.
+- Transforma datos (normaliza columnas, fechas y montos; agrega variables como net_transaction_amount, z-score por categoría, is_refund, flags temporales, etc.).
+- Enriquecimiento externo opcional: marca festivos por país (`is_public_holiday`) y, si se habilita FX y hay `currency`, crea montos normalizados (p. ej. `net_transaction_amount_USD`).
+- Carga en SQLite (`data/processed/etl_results.sqlite`) y genera `querys/etl_results_dump.sql`.
+- Restaura el volcado y ejecuta automáticamente todas las queries `.sql` en `querys/`, exportando a `querys/results/*.csv`.
+
+Entradas/Salidas (I/O) por etapa:
+- Extract → Input: API `https://api.sampleapis.com/fakebank/accounts` | Output: `data/raw/accounts_YYYYMMDD_HHMMSS.parquet`.
+- Transform → Input: parquet más reciente de `data/raw/` | Output: dataframe en memoria con columnas limpias y features.
+- Enrich → Input: dataframe transformado | Output: mismas filas + columnas extra (`is_public_holiday`, montos en `*_USD` si FX activo).
+- Load → Input: dataframe final | Output: `data/processed/etl_results.sqlite` (tabla `accounts`) y `querys/etl_results_dump.sql`.
+
+Configuración clave en `src/config.py` → `ENRICHMENT_CONFIG`:
+- `enable_holidays` (True/False), `holiday_country_code` (ej. 'US', 'ES', 'MX').
+- `enable_fx` (True/False), `fx_target_currency` (ej. 'USD').
+
+Ejemplo de configuración:
+```python
+ENRICHMENT_CONFIG = {
+	'enable_holidays': True,
+	'holiday_country_code': 'US',  # Cambiar a 'ES' o 'MX' según tu caso
+	'enable_fx': False,
+	'fx_target_currency': 'USD'
+}
 ```
-**Resultado:**
-Se detectaron 14 transacciones anómalas. Ejemplo de filas:
 
-| transaction_date | transaction_description | ... | is_anomaly | ... |
-|------------------|------------------------|-----|------------|-----|
-| 2016-01-08       | ...                    | ... | 1          | ... |
-| 2016-01-20       | ...                    | ... | 1          | ... |
-| ...              | ...                    | ... | ...        | ... |
+## Cómo ejecutar el pipeline (macOS, zsh)
 
-## Procesamiento opcional realizado
-- **Normalización de columnas:** Se estandarizaron los nombres de columnas a snake_case para consistencia.
-- **Conversión de fechas:** Las fechas se transformaron al formato estándar `YYYY-MM-DD`.
-- **Enriquecimiento:** Se integraron datos de categorías y se generaron variables adicionales como `net_transaction_amount`, `transaction_size`, y banderas como `is_anomaly`, `is_fee_transaction`, etc.
-- **Detección de anomalías:** Se marcó como anómalas aquellas transacciones que cumplen ciertos criterios (por ejemplo, montos atípicos o categorías inusuales) para facilitar el análisis de calidad y riesgos.
+Requisitos:
+- Python 3.9+ recomendado
+- Conexión a internet (para extraer datos y enriquecer con festivos/FX)
 
----
+```sh
+# 1) Crear y activar venv (opcional, recomendado)
+python3 -m venv .venv
+source .venv/bin/activate
 
-**Nota:** El pipeline es reproducible y modular. Solo necesitas instalar dependencias y ejecutar `python run_all.py`. El archivo `etl_results_dump.sql` te permite compartir y consultar los datos fácilmente en cualquier entorno SQLite.
+# 2) Instalar dependencias
+pip install -r requirements.txt
+
+# 3) Ejecutar el pipeline end-to-end
+python main.py
+```
+
+Salidas esperadas:
+- `data/processed/etl_results.sqlite` y `querys/etl_results_dump.sql`.
+- CSVs en `querys/results/` con los resultados de todas las `.sql`.
+
+Cómo cambiar la configuración antes de ejecutar:
+- Edita `src/config.py` → `ENRICHMENT_CONFIG`:
+	- `enable_holidays`: True/False
+	- `holiday_country_code`: 'US' (cámbialo a 'ES', 'MX', 'CO', etc.)
+	- `enable_fx`: True/False (requiere columna `currency` en los datos)
+	- `fx_target_currency`: 'USD'
+
+## Cómo correr queries
+
+Opción A (automático): ya se ejecutan al final de `python main.py`.
+
+Opción B (manual): ejecutar el runner de queries.
+```sh
+python querys/run_queries.py
+```
+El runner detecta `etl_results_dump.sql`, lo restaura a una base temporal y ejecuta todas las `.sql` en `querys/`, guardando CSV en `querys/results/`.
+
+Para agregar una nueva query: crea un archivo `.sql` en `querys/` (ej. `mi_analisis.sql`). La próxima ejecución la incluirá y generará `querys/results/mi_analisis.csv`.
+
+Listado de queries incluidas y objetivo:
+- `flujo_mensual_ingresos_gastos.sql`: ingresos, gastos y flujo por mes.
+- `transacciones_por_categoria.sql`: conteo por categoría.
+- `promedio_gasto_por_categoria.sql`: ticket medio de gasto por categoría.
+- `top10_transacciones_mas_grandes.sql`: top por monto absoluto.
+- `resumen_por_prioridad.sql`: actividad por prioridad de categoría.
+- `resumen_pagos_y_cargos.sql`: pagos/créditos vs cargos/fees y tamaños.
+- `tasa_anomalias_por_categoria.sql`: porcentaje de outliers por categoría.
+- `gasto_discrecional_mensual.sql`: gasto mensual en categorías discrecionales.
+- `suscripciones_mensuales.sql`: gasto y transacciones con keywords de suscripción.
+- `outliers_por_categoria.sql`: outliers por z-score dentro de su categoría.
+- `fin_de_semana_vs_semana.sql`: comparación de gasto weekend vs weekday.
+- `recurrencia_top_descripciones.sql`: descripciones recurrentes y gasto total.
+- `verificar_columna_is_public_holiday.sql`: valida existencia de la columna.
+- `resumen_festivos_por_mes.sql`: % y monto en días festivos por mes.
+- `muestras_en_festivo.sql`: muestra de filas marcadas como festivo.
+
+Ejecutar una sola query manualmente (alternativa):
+```sh
+# 1) Crear una base temporal a partir del dump
+sqlite3 /tmp/etl_tmp.sqlite < querys/etl_results_dump.sql
+
+# 2) Ejecutar una SQL específica
+sqlite3 /tmp/etl_tmp.sqlite ".read querys/mi_analisis.sql"
+
+# 3) (Opcional) Exportar a CSV desde sqlite3
+sqlite3 -header -csv /tmp/etl_tmp.sqlite "SELECT * FROM accounts LIMIT 5;" > sample.csv
+```
+
+## Variables analíticas destacadas
+- `net_transaction_amount`, `amount_abs`, `is_income`, `is_expense`, `transaction_size`.
+- Temporales: `year_month`, `transaction_day_of_week`, `is_weekend`, `is_month_end`, `is_public_holiday` (si habilitado).
+- Categoría/negocio: `category_type`, `category_priority`, `category_priority_level`, `is_tax_deductible`, `tax_deductible_amount`.
+- Texto/recurrencia: `has_keyword_subscription`, `description_txn_count`, `is_recurring_description`, `is_duplicate_candidate`, `days_since_prev_same_desc`.
+- Estadística por categoría: `cat_net_mean`, `cat_net_std`, `cat_net_zscore`, `spend_vs_category_mean`.
+- `is_refund`.
+
+Data dictionary (compacto):
+- Identificadores y base: `transaction_id`, `transaction_description`, `transaction_category`, `transaction_date` (YYYY-MM-DD).
+- Montos: `credit_amount`, `debit_amount`, `net_transaction_amount` (crédito - débito), `amount_abs`.
+- Temporal: `transaction_year`, `transaction_month`, `transaction_day_of_week`, `transaction_quarter`, `year_month`, `is_weekend`, `is_month_end`, `is_month_start`, `week_of_year`, `is_public_holiday` (si festivos activo).
+- Negocio/categorías: `category_type`, `category_priority`, `category_priority_level` (1/2/3), `category_tax_deductible`, `is_tax_deductible`, `tax_deductible_amount`, `is_fee_transaction`, `is_payment_transaction`, `is_large_transaction`.
+- Texto/recurrencia: `description_length`, `has_keyword_subscription`, `has_atm`, `has_transfer`, `has_refund_keyword`, `description_txn_count`, `is_recurring_description`, `is_duplicate_candidate`, `days_since_prev_same_desc`.
+- Estadísticos por categoría: `cat_net_mean`, `cat_net_std`, `cat_net_zscore`, `spend_vs_category_mean`.
+- Calidad de datos: `data_quality_score`.
+
+## Troubleshooting rápido
+- ¿No aparece `is_public_holiday` en los CSV?
+	- Revisa `ENRICHMENT_CONFIG.enable_holidays=True` y el país.
+	- Vuelve a correr `python main.py` para regenerar el volcado.
+	- Opcional: elimina `querys/etl_results_dump.sql` y `data/processed/etl_results.sqlite` antes de ejecutar.
+	- Ejecuta `python querys/run_queries.py` y revisa `querys/results/verificar_columna_is_public_holiday.csv`.
+
+- ¿No hay resultados en una query?
+	- Verifica que la tabla `accounts` tenga filas en el dump/DB actual.
+	- Asegúrate de que las columnas usadas por la query existan (pueden depender del enriquecimiento).
+
+Validación de festivos paso a paso:
+1) Asegura `enable_holidays=True` y `holiday_country_code` correcto en `src/config.py`.
+2) Ejecuta `python main.py` y verifica el mensaje “2.1 Enriqueciendo…”.
+3) Ejecuta `python querys/run_queries.py`.
+4) Revisa `querys/results/verificar_columna_is_public_holiday.csv` (debe listar la columna).
+5) Revisa `querys/results/muestras_en_festivo.csv` (deberías ver fechas marcadas 1; ej. US: 2025-07-04).
+
+Reset rápido del entorno (para regenerar todo limpio):
+```sh
+rm -f querys/etl_results_dump.sql data/processed/etl_results.sqlite
+python main.py
+python querys/run_queries.py
+```
+
+## Notas
+- El proyecto es modular y reproducible; las salidas estándar permiten compartir datos vía `etl_results_dump.sql`.
+- Cambios de país de festivos y FX se hacen en `src/config.py` sin tocar el código del pipeline.
+
+Detalle de archivos clave:
+- `src/extract/data_extractor.py`: obtiene `accounts` desde `https://api.sampleapis.com/fakebank/accounts` y puede guardar raw en parquet.
+- `src/transform/data_transformer.py`: normaliza nombres/fechas/montos, enriquece por categoría y crea features (anomalías, flags temporales, recurrencia, etc.).
+- `src/enrich/external_enrichment.py`: consulta festivos (Nager.Date `PublicHolidays/{year}/{country}`) y FX (Frankfurter) y añade columnas.
+- `src/load/data_loader.py`: guarda en SQLite y exporta el volcado SQL (usado por el runner y para compartir).
+- `querys/run_queries.py`: detecta el dump/DB, restaura a una DB temporal y ejecuta todas las SQL, exportando a CSV.
