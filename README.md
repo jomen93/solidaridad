@@ -7,8 +7,27 @@ Este proyecto implementa un pipeline ETL en Python para extraer, transformar y a
 ### Estructura del pipeline
 - **Ingesta:** Descarga los datos de la API y los almacena en `data/raw/`.
 - **Transformación:** Limpia, normaliza y enriquece los datos, guardando el resultado en formato Parquet en `data/processed/`.
-- **Carga y análisis:** Carga el dataset procesado en SQLite y ejecuta consultas SQL para responder preguntas de negocio.
+- **Carga y análisis:** Carga el dataset procesado en SQLite y genera automáticamente un volcado `.sql` para que cualquier usuario pueda consultar los datos fácilmente.
 
+## Ejecución rápida del pipeline
+
+1. Instala las dependencias:
+	```sh
+	pip install -r requirements.txt
+	```
+2. Ejecuta el pipeline completo:
+	```sh
+	python run_all.py
+	```
+	Esto generará automáticamente:
+	- La base de datos SQLite en `data/processed/etl_results.sqlite`
+	- Un volcado SQL en `etl_results_dump.sql`
+
+3. Para consultar los datos en otro entorno, puedes cargar el archivo `etl_results_dump.sql` en cualquier gestor de bases de datos SQLite:
+	```sh
+	sqlite3 nueva_base.sqlite < etl_results_dump.sql
+	```
+	Luego puedes hacer cualquier consulta SQL sobre la tabla `accounts`.
 ## Consultas SQL y resultados
 
 ### 1. Transacciones por categoría
@@ -86,4 +105,4 @@ Se detectaron 14 transacciones anómalas. Ejemplo de filas:
 
 ---
 
-**Nota:** El pipeline es reproducible y modular. Solo necesitas instalar dependencias, ejecutar el flujo principal y luego correr las consultas SQL para obtener los resultados.
+**Nota:** El pipeline es reproducible y modular. Solo necesitas instalar dependencias y ejecutar `python run_all.py`. El archivo `etl_results_dump.sql` te permite compartir y consultar los datos fácilmente en cualquier entorno SQLite.
