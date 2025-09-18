@@ -2,17 +2,11 @@
 Pipeline principal ETL
 Orquesta el proceso completo de Extract, Transform, Load
 """
+from src.extract.data_extractor import DataExtractor
+from src.transform.data_transformer import DataTransformer
+from src.load.data_loader import DataLoader
 
-import sys
-import os
-
-# Agregar el directorio src al path para importaciones
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from extract.data_extractor import DataExtractor
-from transform.data_transformer import DataTransformer
-from load.data_loader import DataLoader
-
+from IPython import embed
 
 class ETLPipeline:
     """
@@ -20,9 +14,9 @@ class ETLPipeline:
     """
 
     def __init__(self):
-        self.extractor = DataExtractor()
+        self.extractor   = DataExtractor()
         self.transformer = DataTransformer()
-        self.loader = DataLoader()
+        self.loader      = DataLoader()
 
     def run_pipeline(self, endpoint: str = 'fakebank/accounts'):
         """
@@ -35,30 +29,31 @@ class ETLPipeline:
 
         # EXTRACT
         print("1. Extrayendo datos...")
-        extract_result = self.extractor.get_data(endpoint)
+        accounts_result = self.extractor.extract_fakebank_data('accounts', 'parquet', save=True)
 
-        if not extract_result['success']:
-            print(f"Error en extracción: {extract_result['error']}")
-            return
-
-        print(f"✓ Datos extraídos: {extract_result['metadata']['total_records']} registros")
+        print(f"✓ Datos extraídos: {accounts_result['extraction_result']['metadata']['total_records']} registros")
 
         # TRANSFORM
         print("2. Transformando datos...")
-        transformed_data = self.transformer.transform_data(extract_result['data'])
-        print("✓ Datos transformados")
+        latest_file = self.transformer.find_latest_raw_file('accounts')
+        transform_result = self.transformer.transform_from_raw_file(
+            latest_file,
+            save_processed=True,
+            processed_format='parquet'
+        )
 
-        # LOAD
+        print(f"✓ Datos transformados: {transform_result['transformed_records_count']} registros")
+
         print("3. Cargando datos...")
-        # Aquí se implementaría la carga según necesidades
-        print("✓ Datos listos para cargar")
+
 
         print("=== Pipeline ETL Completado ===")
 
         return {
             'status': 'success',
-            'extracted_records': extract_result['metadata']['total_records'],
-            'transformed_data': transformed_data
+            'extracted_records': accounts_result["extraction_result"]['metadata']['total_records'],
+            'transformed_records': transform_result['transformed_records_count'],
+            'transformed_data': transform_result['transformed_data']
         }
 
 

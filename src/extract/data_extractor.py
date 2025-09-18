@@ -1,77 +1,81 @@
 """
-Extractor de datos para APIs REST
-Basado en el ejemplo de JavaScript proporcionado
+REST APIs Data Extractor
 """
 
 import requests
 import json
 import logging
+import os
+import sys
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from IPython import embed
+# Add path for DataLoader import
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from load.data_loader import DataLoader
+
 
 class DataExtractor:
     """
-    Clase para extraer datos de APIs REST
-    Equivalente al componente React con fetch
+    Class to extract data from REST APIs
     """
 
     def __init__(self, base_url: str = "https://api.sampleapis.com", timeout: int = 30):
         """
-        Inicializa el extractor de datos
+        Initialize the data extractor
 
         Args:
-            base_url: URL base de la API
-            timeout: Timeout en segundos para las requests
+            base_url: Base URL of the API
+            timeout: Timeout in seconds for requests
         """
         self.base_url = base_url.rstrip('/')
         self.timeout = timeout
         self.session = requests.Session()
+        self.loader = DataLoader()
 
-        # Configurar headers por defecto
+        # Configure default headers
         self.session.headers.update({
             'User-Agent': 'DataExtractor/1.0',
             'Accept': 'application/json',
             'Content-Type': 'application/json'
         })
 
-        # Configurar logging
+        # Configure logging
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
     def get_data(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        Extrae datos de una API REST
-        Equivalente a la función getData del ejemplo de JavaScript
+        Extract data from a REST API
+        Equivalent to the getData function from the JavaScript example
 
         Args:
-            endpoint: Endpoint de la API (ej: 'fakebank/accounts')
-            params: Parámetros opcionales para la request
+            endpoint: API endpoint (e.g., 'fakebank/accounts')
+            params: Optional parameters for the request
 
         Returns:
-            Dict con los datos extraídos y metadata
+            Dict with extracted data and metadata
 
         Raises:
-            Exception: Si hay error en la extracción
+            Exception: If there's an error in extraction
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
 
         try:
-            self.logger.info(f"Extrayendo datos de: {url}")
+            self.logger.info(f"Extracting data from: {url}")
 
-            # Realizar la request (equivalente al fetch)
+            # Make the request
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
 
-            # Convertir a JSON (equivalente al .json())
+            # Convert to JSON
             data = response.json()
 
-            # Log de éxito
+            # Success log
             records_count = len(data) if isinstance(data, list) else 1
-            self.logger.info(f"Datos extraídos exitosamente. Total registros: {records_count}")
+            self.logger.info(f"Data extracted successfully. Total records: {records_count}")
 
-            # Retornar datos con metadata
+            # Return data with metadata
             return {
                 'success': True,
                 'data': data,
@@ -85,8 +89,7 @@ class DataExtractor:
             }
 
         except requests.exceptions.RequestException as e:
-            # Manejo de errores (equivalente al catch del JavaScript)
-            error_message = f"Error de conexión: {str(e)}"
+            error_message = f"Connection error: {str(e)}"
             self.logger.error(error_message)
 
             return {
@@ -101,8 +104,7 @@ class DataExtractor:
             }
 
         except json.JSONDecodeError as e:
-            # Error de decodificación JSON
-            error_message = f"Error decodificando JSON: {str(e)}"
+            error_message = f"JSON decoding error: {str(e)}"
             self.logger.error(error_message)
 
             return {
@@ -117,8 +119,7 @@ class DataExtractor:
             }
 
         except Exception as e:
-            # Error general
-            error_message = f"Error inesperado: {str(e)}"
+            error_message = f"Unexpected error: {str(e)}"
             self.logger.error(error_message)
 
             return {
@@ -132,50 +133,112 @@ class DataExtractor:
                 'error': error_message
             }
 
-    def get_fakebank_accounts(self) -> Dict[str, Any]:
+    def extract_fakebank_data(self, data_type: str, save_format: str = 'parquet', save: bool = False) -> Dict[str, Any]:
         """
-        Método específico para extraer datos del ejemplo proporcionado
-        Equivalente directo al fetch de 'https://api.sampleapis.com/fakebank/accounts'
-        """
-        return self.get_data('fakebank/accounts')
-
-    def get_data_with_retry(self, endpoint: str, max_retries: int = 3, params: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        Extrae datos con reintentos automáticos en caso de fallo
+        Extract specific fakebank data type and optionally save to raw
 
         Args:
-            endpoint: Endpoint de la API
-            max_retries: Número máximo de reintentos
-            params: Parámetros opcionales para la request
+            data_type: Type of fakebank data ('accounts' or 'account_types')
+            save_format: Format to save data ('parquet', 'json', 'csv')
+            save: If True, saves data to data/raw directory
 
         Returns:
-            Dict con los datos extraídos y metadata
+            Dict with extraction results and optionally save results
         """
-        for attempt in range(max_retries + 1):
-            result = self.get_data(endpoint, params)
+        # Map data types to endpoints
+        endpoint_mapping = {
+            'accounts': 'fakebank/accounts',
+            'account_types': 'fakebank/accountTypes'
+        }
 
-            if result['success']:
-                if attempt > 0:
-                    self.logger.info(f"Extracción exitosa en el intento {attempt + 1}")
-                return result
+        if data_type not in endpoint_mapping:
+            error_message = f"Unsupported fakebank data type: {data_type}. Available: {list(endpoint_mapping.keys())}"
+            self.logger.error(error_message)
+            return {
+                'success': False,
+                'data_type': data_type,
+                'endpoint': None,
+                'extraction_result': None,
+                'save_result': None,
+                'error': error_message
+            }
 
-            if attempt < max_retries:
-                self.logger.warning(f"Intento {attempt + 1} falló. Reintentando...")
+        endpoint = endpoint_mapping[data_type]
+
+        # Extract data
+        self.logger.info(f"Starting extraction for {data_type} from {endpoint}")
+        extraction_result = self.get_data(endpoint)
+
+        if not extraction_result['success']:
+            self.logger.error(f"Extraction failed for {data_type}: {extraction_result['error']}")
+            return {
+                'success': False,
+                'data_type': data_type,
+                'endpoint': endpoint,
+                'extraction_result': extraction_result,
+                'save_result': None,
+                'error': f"Extraction failed: {extraction_result['error']}"
+            }
+
+        # Save if requested
+        save_result = None
+        if save:
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{data_type}_{timestamp}.{save_format}"
+            filepath = f"data/raw/{filename}"
+
+            # Save using DataLoader
+            self.logger.info(f"Saving {data_type} data to {filepath}")
+            save_result = self.loader.save_data(extraction_result['data'], filepath, save_format)
+
+            if save_result['success']:
+                self.logger.info(f"Successfully saved {data_type} data: {save_result['records_count']} records")
             else:
-                self.logger.error(f"Todos los intentos fallaron después de {max_retries + 1} intentos")
+                self.logger.error(f"Failed to save {data_type} data: {save_result['error']}")
 
-        return result
+        return {
+            'success': extraction_result['success'] and (save_result['success'] if save else True),
+            'data_type': data_type,
+            'endpoint': endpoint,
+            'extraction_result': extraction_result,
+            'save_result': save_result,
+            'error': save_result.get('error') if save and save_result and not save_result['success'] else None
+        }
 
 
 
 if __name__ == "__main__":
-
+    # Example usage
     extractor = DataExtractor()
-    result = extractor.get_fakebank_accounts()
-    embed()
 
-    if result['success']:
-        print(f"Datos extraídos: {len(result['data'])} registros")
-        print(f"Primer registro: {result['data'][0] if result['data'] else 'No data'}")
+    print("=== Extract Data Examples ===")
+
+    # Example 1: Extract accounts data only (no save)
+    print("\n1. Extracting accounts data (no save)...")
+    accounts_result = extractor.extract_fakebank_data('accounts')
+
+    if accounts_result['success']:
+        print(f"✅ Success! Extracted {accounts_result['extraction_result']['metadata']['total_records']} records")
     else:
-        print(f"Error: {result['error']}")
+        print(f"❌ Failed: {accounts_result['error']}")
+
+    # Example 2: Extract and save accounts as parquet
+    print("\n2. Extracting and saving accounts data as parquet...")
+    accounts_save_result = extractor.extract_fakebank_data('accounts', 'parquet', save=True)
+
+    if accounts_save_result['success']:
+        print(f"✅ Success! Saved to: {accounts_save_result['save_result']['filepath']}")
+        print(f"Records: {accounts_save_result['save_result']['records_count']}")
+    else:
+        print(f"❌ Failed: {accounts_save_result['error']}")
+
+    # Example 3: Extract and save account types as CSV
+    print("\n3. Extracting and saving account types as CSV...")
+    account_types_result = extractor.extract_fakebank_data('accounts', 'csv', save=True)
+
+    if account_types_result['success']:
+        print(f"✅ Success! Saved to: {account_types_result['save_result']['filepath']}")
+        print(f"Records: {account_types_result['save_result']['records_count']}")
+    else:
+        print(f"❌ Failed: {account_types_result['error']}")
