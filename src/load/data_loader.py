@@ -223,8 +223,61 @@ class DataLoader:
                 'error': error_message
             }
 
-    def save_to_database(self, data):
+    def save_to_database(self, data, db_path='data/processed/etl_results.sqlite', sql_dump_path='etl_results_dump.sql', table_name='accounts'):
         """
-        Save data to database
+        Save data to SQLite database and export SQL dump
+        Args:
+            data: Data to save (list of dicts, dict, or DataFrame)
+            db_path: Path to SQLite database file
+            sql_dump_path: Path to export SQL dump file
+            table_name: Name of the table to save data
+        Returns:
+            Dict with operation result and metadata
         """
-        return data
+        import sqlite3
+        import pandas as pd
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+            # Convert to DataFrame if needed
+            if isinstance(data, dict):
+                data = [data]
+            if not isinstance(data, pd.DataFrame):
+                df = pd.DataFrame(data)
+            else:
+                df = data
+
+            # Save DataFrame to SQLite
+            conn = sqlite3.connect(db_path)
+            df.to_sql(table_name, conn, if_exists='replace', index=False)
+
+            # Export SQL dump
+            with open(sql_dump_path, 'w', encoding='utf-8') as f:
+                for line in conn.iterdump():
+                    f.write(f'{line}\n')
+
+            conn.close()
+
+            self.logger.info(f"Data saved to SQLite: {db_path} and SQL dump: {sql_dump_path}")
+            return {
+                'success': True,
+                'db_path': db_path,
+                'sql_dump_path': sql_dump_path,
+                'records_count': len(df),
+                'columns': df.columns.tolist(),
+                'format': 'sqlite',
+                'error': None
+            }
+        except Exception as e:
+            error_message = f"Error saving to SQLite or exporting SQL: {str(e)}"
+            self.logger.error(error_message)
+            return {
+                'success': False,
+                'db_path': db_path,
+                'sql_dump_path': sql_dump_path,
+                'records_count': 0,
+                'columns': [],
+                'format': 'sqlite',
+                'error': error_message
+            }

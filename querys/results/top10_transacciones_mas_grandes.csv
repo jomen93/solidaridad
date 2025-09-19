@@ -1,0 +1,11 @@
+transaction_date,transaction_description,transaction_category,net_transaction_amount,abs_amount
+2016-12-14,MomCorp,Payment/Credit,630.35,630.35
+2016-11-14,MomCorp,Payment/Credit,500.0,500.0
+2016-09-26,MomCorp,Payment/Credit,457.97,457.97
+2016-04-26,MomCorp,Payment/Credit,357.13,357.13
+2016-06-03,MomCorp,Payment/Credit,335.01,335.01
+2016-09-03,MomCorp,Payment/Credit,290.3,290.3
+2016-02-17,MomCorp,Payment/Credit,265.86,265.86
+2016-08-06,MomCorp,Payment/Credit,262.88,262.88
+2016-03-15,MomCorp,Payment/Credit,237.11,237.11
+2016-09-16,Planet Express,Other Travel,-214.14,214.14

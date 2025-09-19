@@ -1,0 +1,5 @@
+transaction_date,transaction_category,transaction_description,net_transaction_amount,cat_net_mean,cat_net_std,zscore
+2016-12-23,Merchandise,Admiral Crunch,-183.87,-37.630384615384614,36.21756880362415,-4.038
+2015-12-31,Other Services,All Purpose Spray,-100.84,-21.130625,21.423982035326677,-3.721
+2016-12-08,Dining,Bachelor Chow,-67.41,-17.47772727272727,13.532317538781069,-3.69
+2016-11-12,Fee/Interest Charge,MomCorp,-6.91,-5.136428571428572,0.5104689720527306,-3.474
