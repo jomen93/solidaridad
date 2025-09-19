@@ -10,9 +10,8 @@ import sys
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-# Add path for DataLoader import
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from load.data_loader import DataLoader
+from ..logging_config import get_rich_logger
+from ..load.data_loader import DataLoader
 
 
 class DataExtractor:
@@ -41,8 +40,7 @@ class DataExtractor:
         })
 
         # Configure logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_rich_logger(__name__)
 
     def get_data(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """

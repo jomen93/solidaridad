@@ -11,6 +11,8 @@ from typing import Dict, Any, List, Union
 from datetime import datetime
 import pandas as pd
 
+from ..logging_config import get_rich_logger
+
 
 class DataLoader:
     """
@@ -22,8 +24,8 @@ class DataLoader:
         Initialize the data loader
         """
         # Configure logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+
+        self.logger = get_rich_logger(__name__)
 
     def save_to_csv(self, data: Union[List[Dict], Dict], filepath: str, encoding: str = 'utf-8') -> Dict[str, Any]:
         """

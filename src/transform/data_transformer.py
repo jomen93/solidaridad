@@ -11,6 +11,9 @@ from typing import Dict, Any, List, Union, Optional
 import json
 import numpy as np
 
+from ..logging_config import get_rich_logger
+
+
 
 class DataTransformer:
     """
@@ -23,7 +26,7 @@ class DataTransformer:
         """
         # Configure logging
         logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_rich_logger(__name__)
 
         # Transaction categories mapping for data enrichment
         # This mapping serves as a simulated lookup table to enrich transaction data
@@ -315,7 +318,7 @@ class DataTransformer:
             df_validated['is_discretionary'] = df_validated['category_type'].isin(discretionary_types)
         if 'category_tax_deductible' in df_validated.columns and 'net_transaction_amount' in df_validated.columns:
             df_validated['tax_deductible_amount'] = np.where(
-                df_validated['category_tax_deductible'].fillna(False),
+                df_validated['category_tax_deductible'].eq(True),
                 df_validated['net_transaction_amount'].abs(),
                 0.0
             )
